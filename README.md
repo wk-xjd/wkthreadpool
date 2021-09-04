@@ -1,2 +1,2 @@
 # wkthreadpool
-c++实现线程池
+基于std实现简单的线程池
