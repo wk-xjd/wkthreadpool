@@ -7,9 +7,9 @@
 #include <mutex>   
 #include <deque>
 #include <condition_variable>
+#include "WKLocker.h"
 
 class WKThreadTask;
-class WKLocker;
 
 class WKThread
 {
@@ -29,7 +29,7 @@ public:
 	bool addTask(WKThreadTask* task);
 	void setNextTaskQueue(std::deque<WKThreadTask*>* nextTaskQueue);
 	void removeNextTaskQueue();
-	bool hasNextTaskQueue() const;
+	const bool hasNextTaskQueue();
 
 	WKThread* getInstance();
 	unsigned int getThreadId() const;
@@ -48,12 +48,12 @@ private:
 	std::thread* m_stdThread = nullptr;
 	std::atomic<bool> m_bWaitFlag = false;
 	std::atomic<bool> m_bQuitFlag = true;
-	ThreadState m_state = ThreadState::Waiting;
+	std::atomic<enum ThreadState> m_state = ThreadState::Waiting;
 	std::mutex m_mutex;
 	std::condition_variable m_condition;
 	unsigned int m_threadId = 0;
 	WKThreadTask* m_task = nullptr;
-	WKLocker* m_wkLocker;
+	WKLocker m_wkLocker;
 	std::deque<WKThreadTask*>* m_nextTaskQueue = nullptr;
 };
 #endif // WKThread_H

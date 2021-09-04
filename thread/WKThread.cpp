@@ -1,11 +1,9 @@
 #include "WKThread.h"
 #include "WKThreadTask.h"
 #include "utils.h"
-#include "WKLocker.h"
 #include "global.h"
 
 WKThread::WKThread()
-	: m_wkLocker(new WKLocker)
 {
 
 }
@@ -18,12 +16,6 @@ WKThread::~WKThread()
 		delete m_stdThread;
 		m_stdThread = nullptr;
 	}	
-
-	if (m_wkLocker)
-	{
-		delete m_wkLocker;
-		m_wkLocker = nullptr;
-	}
 }
 
 void WKThread::start()
@@ -64,23 +56,23 @@ bool WKThread::addTask(WKThreadTask* task)
 
 void WKThread::setNextTaskQueue(std::deque<WKThreadTask*>* nextTaskQueue)
 {
-	m_wkLocker->lock();
+	m_wkLocker.lock();
 	m_nextTaskQueue = nextTaskQueue;
-	m_wkLocker->unlock();
+	m_wkLocker.unlock();
 }
 
 void WKThread::removeNextTaskQueue()
 {
-	m_wkLocker->lock();
+	m_wkLocker.lock();
 	m_nextTaskQueue = nullptr;
-	m_wkLocker->unlock();
+	m_wkLocker.unlock();
 }
 
-bool WKThread::hasNextTaskQueue() const
+const bool WKThread::hasNextTaskQueue() 
 {
-	m_wkLocker->lock();
+	m_wkLocker.lock();
 	return m_nextTaskQueue != nullptr;
-	m_wkLocker->unlock();
+	m_wkLocker.unlock();
 }
 
 unsigned int WKThread::getThreadId() const
@@ -98,26 +90,17 @@ WKThread* WKThread::getInstance()
 
 bool WKThread::isRunning() const
 {
-	m_wkLocker->lock();
-	bool state = m_state == ThreadState::Running;
-	m_wkLocker->unlock();
-	return state;
+	return m_state == ThreadState::Running;
 }
 
 bool WKThread::isFinished() const
 {
-	m_wkLocker->lock();
-	bool state = m_state == ThreadState::Finished;
-	m_wkLocker->unlock();
-	return state;
+	return m_state == ThreadState::Finished;
 }
 
 bool WKThread::isWaiting() const
 {
-	m_wkLocker->lock();
-	bool state = m_state == ThreadState::Waiting;
-	m_wkLocker->unlock();
-	return state;
+	return m_state == ThreadState::Waiting;
 }
 
 void WKThread::run()
@@ -162,15 +145,15 @@ void WKThread::_runTask()
 	m_threadId = WKUtils::currentThreadId();
 	do
 	{
-		m_wkLocker->lock();
+		m_wkLocker.lock();
 		m_state = ThreadState::Running;
-		m_wkLocker->unlock();
+		m_wkLocker.unlock();
 		run();
 		if (m_bWaitFlag)
 		{
-			m_wkLocker->lock();
+			m_wkLocker.lock();
 			m_state = ThreadState::Waiting;
-			m_wkLocker->unlock();
+			m_wkLocker.unlock();
 			std::unique_lock<std::mutex> locker(m_mutex);
 			while (m_bWaitFlag)
 			{
@@ -178,9 +161,9 @@ void WKThread::_runTask()
 			}
 			locker.unlock();
 		}
-		m_wkLocker->lock();
+		m_wkLocker.lock();
 		m_state = ThreadState::Finished;
-		m_wkLocker->unlock();
+		m_wkLocker.unlock();
 	} while (!m_bQuitFlag);
 }
 
