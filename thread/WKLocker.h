@@ -7,7 +7,7 @@
 class WKLocker
 {
 public:
-	WKLocker(int spinTimes = 10);
+	WKLocker(int spinTimes = 20);
 	~WKLocker();
 	
 	void lock();

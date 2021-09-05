@@ -48,7 +48,7 @@ bool WKThread::addTask(WKThreadTask* task)
 {
 	if (isRunning())
 		return false;
-
+		
 	m_task = task;
 	wake();
 	return true;
@@ -56,23 +56,24 @@ bool WKThread::addTask(WKThreadTask* task)
 
 void WKThread::setNextTaskQueue(std::deque<WKThreadTask*>* nextTaskQueue)
 {
-	m_wkLocker.lock();
+	m_nextQueueWKLocker.lock();
 	m_nextTaskQueue = nextTaskQueue;
-	m_wkLocker.unlock();
+	m_nextQueueWKLocker.unlock();
 }
 
 void WKThread::removeNextTaskQueue()
 {
-	m_wkLocker.lock();
+	m_nextQueueWKLocker.lock();
 	m_nextTaskQueue = nullptr;
-	m_wkLocker.unlock();
+	m_nextQueueWKLocker.unlock();
 }
 
 const bool WKThread::hasNextTaskQueue() 
 {
-	m_wkLocker.lock();
-	return m_nextTaskQueue != nullptr;
-	m_wkLocker.unlock();
+	m_nextQueueWKLocker.lock();
+	bool ret =  m_nextTaskQueue != nullptr;
+	m_nextQueueWKLocker.unlock();
+	return ret;
 }
 
 unsigned int WKThread::getThreadId() const
@@ -108,12 +109,13 @@ void WKThread::run()
 	m_bQuitFlag = false;
 	if (m_task)
 	{
+		//执行线程任务
 		m_task->run();
 		m_task->callback();
 		if (m_task->isAutoDelete())
 			delete m_task;
 		m_task = nullptr;
-
+		//任务执行完毕后，取下一个任务
 		if (hasNextTaskQueue())
 		{
 			if (m_nextTaskQueue->empty())
@@ -132,7 +134,10 @@ void WKThread::run()
 			}
 		}
 		else
-			wait();
+		{
+			wait(); // 没有下一个任务挂起线程
+		}
+			
 	}
 	else
 	{
@@ -145,15 +150,11 @@ void WKThread::_runTask()
 	m_threadId = WKUtils::currentThreadId();
 	do
 	{
-		m_wkLocker.lock();
-		m_state = ThreadState::Running;
-		m_wkLocker.unlock();
+		_updateState(ThreadState::Running);
 		run();
 		if (m_bWaitFlag)
 		{
-			m_wkLocker.lock();
-			m_state = ThreadState::Waiting;
-			m_wkLocker.unlock();
+			_updateState(ThreadState::Waiting);
 			std::unique_lock<std::mutex> locker(m_mutex);
 			while (m_bWaitFlag)
 			{
@@ -161,9 +162,14 @@ void WKThread::_runTask()
 			}
 			locker.unlock();
 		}
-		m_wkLocker.lock();
-		m_state = ThreadState::Finished;
-		m_wkLocker.unlock();
+		_updateState(ThreadState::Finished);
 	} while (!m_bQuitFlag);
+}
+
+void WKThread::_updateState(ThreadState state)
+{
+	m_wkLocker.lock();
+	m_state = state;
+	m_wkLocker.unlock();
 }
 

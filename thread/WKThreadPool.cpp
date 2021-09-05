@@ -1,7 +1,6 @@
 #include "WKThreadPool.h"
 #include "WKThreadTask.h"
 #include "WKThread.h"
-#include "WKLocker.h"
 #include "global.h"
 #include <chrono>
 
@@ -26,6 +25,7 @@ WKThreadPool::WKThreadPool(int maxThreadSize, int maxTaskSize)
 
 WKThreadPool::~WKThreadPool()
 {
+	//析构前释放所有线程
 	stop();
 	if (m_pollingThread)
 	{
@@ -67,6 +67,7 @@ bool WKThreadPool::addTask(WKThreadTask* task)
 			g_WKTaskQueueLocker.unlock();
 			return true;
 		}
+		//任务优先级高从堆首插入
 		if (task->taskPriorty() >= m_taskQueue.front()->taskPriorty())
 		{
 			m_taskQueue.push_front(task);
@@ -115,61 +116,27 @@ void WKThreadPool::_benginScheduler()
 		{
 			WKThreadTask* temp_task = _getTask();
 			if (!temp_task)
-				goto loop_check;
+				goto LOOP_CHECK;
 			WKThread* temp_wkThr = m_threadWaitQueue.front();
 
 			if (temp_wkThr && temp_task)
 			{
 				temp_wkThr->addTask(temp_task);
-				g_WKTaskQueueLocker.lock();
+				m_threadQueueWKLocker.lock();
 				m_threadDoneQueue.push(temp_wkThr);
 				m_threadWaitQueue.pop();
 				m_threadDoneCount = m_threadDoneQueue.size();
 				m_threadWaitCount = m_threadWaitQueue.size();
-				g_WKTaskQueueLocker.unlock();
+				m_threadQueueWKLocker.unlock();
 			}
 		}
 		else if (doneThreadCount() + waitThreadCount() < maxThreadSize() && currentTaskSize() > 0)
 		{
 			_createThread();
 		}
-loop_check:
+LOOP_CHECK:
 		{
-			if (waitThreadCount() >= m_lastWaitThreadcount && m_lastWaitThreadcount > 0)
-			{
-				m_lastWaitThreadcount = waitThreadCount();
-				if (m_waitThreadCountGradient >= 0)
-					m_waitThreadCountGradient++;
-				else
-					m_waitThreadCountGradient = 0;
-				 
-				if (m_waitThreadCountGradient >= s_changeIntrvalBound)
-				{
-					m_waitThreadCountGradient = 0;
-					m_sleepIntrval  += s_pollingShortIntrvalMs;
-					if (m_sleepIntrval > s_sleepIntrvalBound)
-						m_sleepIntrval = s_sleepIntrvalBound;
-				}
-					
-			}
-			else if (waitThreadCount() <= m_lastWaitThreadcount && m_lastWaitThreadcount > 0)
-			{
-				m_lastWaitThreadcount = waitThreadCount();
-				if (m_waitThreadCountGradient <= 0)
-					m_waitThreadCountGradient--;
-				else
-					m_waitThreadCountGradient = 0;
-
-				if (m_waitThreadCountGradient >= s_changeIntrvalBound)
-				{
-					m_waitThreadCountGradient = 0;
-					m_sleepIntrval -= s_pollingShortIntrvalMs;
-					if (abs(m_sleepIntrval) > s_sleepIntrvalBound)
-						m_sleepIntrval = -s_sleepIntrvalBound;
-				}
-
-			}
-				
+			_updateElasticInterval();		
 			_checkThreadQueue();
 			_sleepIntrval(s_pollingLongIntrvalMs + m_sleepIntrval);
 		}
@@ -184,29 +151,30 @@ void WKThreadPool::_createThread()
 	if (temp_task)
 	{
 		temp_wkThr->addTask(temp_task);
-		temp_wkThr->setNextTaskQueue(&m_taskQueue);
+		temp_wkThr->setNextTaskQueue(&m_taskQueue); //将任务队列给当前线程，当线程完成后自动从队列中取任务执行
 		temp_wkThr->start();
-		g_WKTaskQueueLocker.lock();
+		m_threadQueueWKLocker.lock();
 		m_threadDoneQueue.push(temp_wkThr);
 		m_threadDoneCount = m_threadDoneQueue.size();
-		g_WKTaskQueueLocker.unlock();
+		m_threadQueueWKLocker.unlock();
 	}
 	else
 	{
-		g_WKTaskQueueLocker.lock();
+		m_threadQueueWKLocker.lock();
 		m_threadWaitQueue.push(temp_wkThr);
 		m_threadWaitCount = m_threadWaitQueue.size();
-		g_WKTaskQueueLocker.unlock();
+		m_threadQueueWKLocker.unlock();
 	}
 }
 
 void WKThreadPool::_checkThreadQueue()
 {
+	//检查所有的工作线程，是否有挂起线程
 	int checkLen = doneThreadCount();
 	WKThread* temp_wkThr = nullptr;
 	while (checkLen--)
 	{
-		g_WKTaskQueueLocker.lock();
+		m_threadQueueWKLocker.lock();
 		temp_wkThr = m_threadDoneQueue.front();
 		m_threadDoneQueue.pop();
 		
@@ -216,13 +184,13 @@ void WKThreadPool::_checkThreadQueue()
 			m_threadDoneQueue.push(temp_wkThr);
 		m_threadDoneCount = m_threadDoneQueue.size();
 		m_threadWaitCount = m_threadWaitQueue.size();
-		g_WKTaskQueueLocker.unlock();
+		m_threadQueueWKLocker.unlock();
 	}
 }
 
 void WKThreadPool::_stopAllThread()
 {
-	//�ȴ��������ִ�����
+	//阻塞等待线程执行完毕
 	std::unique_lock<std::mutex> locker(m_mutex);
 	m_condition.wait(locker, [&]()
 		{return currentTaskSize() == 0; });
@@ -250,12 +218,6 @@ void WKThreadPool::_stopAllThread()
 		}
 		m_threadDoneQueue.pop();
 	}
-
-}
-
-void WKThreadPool::_clearTaskQueue()
-{
-	m_taskQueue.clear();
 }
 
 void WKThreadPool::_sleepIntrval(const int ms)
@@ -278,5 +240,42 @@ WKThreadTask* WKThreadPool::_getTask()
 	return temp_task;
 }
 
+
+void WKThreadPool::_updateElasticInterval()
+{
+	if (waitThreadCount() >= m_lastWaitThreadcount && m_lastWaitThreadcount > 0)
+	{
+		m_lastWaitThreadcount = waitThreadCount();
+		if (m_waitThreadCountGradient >= 0)
+			m_waitThreadCountGradient++;
+		else
+			m_waitThreadCountGradient = 0;
+			
+		if (m_waitThreadCountGradient >= s_changeIntrvalBound)
+		{
+			m_waitThreadCountGradient = 0;
+			m_sleepIntrval  += s_pollingShortIntrvalMs;
+			if (m_sleepIntrval > s_sleepIntrvalBound)
+				m_sleepIntrval = s_sleepIntrvalBound;
+		}
+			
+	}
+	else if (waitThreadCount() <= m_lastWaitThreadcount && m_lastWaitThreadcount > 0)
+	{
+		m_lastWaitThreadcount = waitThreadCount();
+		if (m_waitThreadCountGradient <= 0)
+			m_waitThreadCountGradient--;
+		else
+			m_waitThreadCountGradient = 0;
+
+		if (m_waitThreadCountGradient >= s_changeIntrvalBound)
+		{
+			m_waitThreadCountGradient = 0;
+			m_sleepIntrval -= s_pollingShortIntrvalMs;
+			if (abs(m_sleepIntrval) > s_sleepIntrvalBound)
+				m_sleepIntrval = -s_sleepIntrvalBound;
+		}
+	}
+}
 
 

@@ -29,11 +29,14 @@ public:
 	} 
 };
 
+//线程类测试
 void test1()
 {
+	//方式一创建线程
 	A a;
 	a.start();
 
+	//方式2创建线程
 	WKThread thr;
 	thr.addTask(new B);
 	thr.start();
@@ -49,25 +52,26 @@ void test1()
 	std::cout << "thread state" << thr.isWaiting() << std::endl;
 }
 
-
-
+//线程池测试
 void test2()
 {
-	WKThreadPool* pool = new WKThreadPool;
+	WKThreadPool* pool = new WKThreadPool; //创建线程池
+	pool->start();	//启动线程池
+
+	//添加任务
 	int i = 10;
-	std::cout << "threadpool size" << pool->maxThreadSize() << std::endl;
+	std::cout << "========================threadpool size" << pool->maxThreadSize()<< "=================" << std::endl;
 	B* b;
 	while (i--)
 	{
 		b = new B;
-		b->setAutoDelete(true);
+		b->setAutoDelete(true);	//自动清理任务
 		pool->addTask(b);
 	}
-	pool->start();
-
+	
 	while (1)
 	{
-		_sleep(10);
+		_sleep(100);
 		std::cout << "====================" << std::endl;
 		std::cout << "donethread:" <<pool->doneThreadCount() << "   waitthread:" << pool->waitThreadCount() << "  tasksize" << pool->currentTaskSize();
 		std::cout << "====================" << std::endl;
@@ -82,6 +86,6 @@ int main()
 	std::cout << "====main run" << std::endl;
 	std::cout << "thread id:" << std::this_thread::get_id() << std::endl;
 	test2();
-	while (1);
+	while (1);	//主线程阻塞
 	return 0;
 }
