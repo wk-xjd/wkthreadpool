@@ -1,8 +1,6 @@
 #ifndef WKLOCKER_H
 #define WKLOCKER_H
-#include <mutex>
-#include <atomic>
-#include <condition_variable>
+#include "stdafx.h"
 
 class WKLocker
 {

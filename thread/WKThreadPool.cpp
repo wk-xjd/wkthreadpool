@@ -1,8 +1,5 @@
 #include "WKThreadPool.h"
-#include "WKThreadTask.h"
 #include "WKThread.h"
-#include "global.h"
-#include <chrono>
 
 namespace
 {
@@ -20,7 +17,7 @@ WKThreadPool::WKThreadPool(int maxThreadSize, int maxTaskSize)
 	: m_maxTaskSize(maxTaskSize)
 	, m_maxThreadSize(maxThreadSize)
 {
-
+	
 }
 
 WKThreadPool::~WKThreadPool()
@@ -55,29 +52,24 @@ bool WKThreadPool::isStop() const
 	return m_bStoped;
 }
 
-bool WKThreadPool::addTask(WKThreadTask* task)
+bool WKThreadPool::addTask(WKUtils::WKThreadTask* task)
 {
 	if (task && !m_bExiting && currentTaskSize() <= maxTaskSize())
 	{
-		g_WKTaskQueueLocker.lock();
-		if (m_taskQueue.empty())
+		if (m_taskQueue.isEmpty())
 		{
-			m_taskQueue.push_back(task);
-			m_taskCount = m_taskQueue.size();
-			g_WKTaskQueueLocker.unlock();
+			m_taskQueue.pushFrontTask(task);
 			return true;
 		}
 		//任务优先级高从堆首插入
-		if (task->taskPriorty() >= m_taskQueue.front()->taskPriorty())
+		if (task->taskPriorty() >= m_taskQueue.getFrontTask()->taskPriorty())
 		{
-			m_taskQueue.push_front(task);
+			m_taskQueue.pushFrontTask(task);
 		}
 		else
 		{
-			m_taskQueue.push_back(task);
+			m_taskQueue.pushBackTask(task);
 		}
-		m_taskCount = m_taskQueue.size();
-		g_WKTaskQueueLocker.unlock();
 		return true;	
 	}
 	return false;
@@ -105,7 +97,7 @@ int WKThreadPool::maxTaskSize() const
 
 int WKThreadPool::currentTaskSize() const
 {
-	return m_taskCount;
+	return m_taskQueue.getTaskSize();
 }
 
 void WKThreadPool::_benginScheduler()
@@ -114,7 +106,7 @@ void WKThreadPool::_benginScheduler()
 	{
 		if (waitThreadCount() > 0)
 		{
-			WKThreadTask* temp_task = _getTask();
+			WKUtils::WKThreadTask* temp_task = _getTask();
 			if (!temp_task)
 				goto LOOP_CHECK;
 			WKThread* temp_wkThr = m_threadWaitQueue.front();
@@ -146,22 +138,30 @@ LOOP_CHECK:
 
 void WKThreadPool::_createThread()
 {
-	WKThread* temp_wkThr = new WKThread();
-	WKThreadTask* temp_task = _getTask();
-	if (temp_task)
+	static WKUtils::WKThreadTaskQueue* const s_taskQueuePtr = &m_taskQueue;
+	static std::function<WKUtils::WKThreadTask* (void)> s_pFunc = [](){
+		WKUtils::WKThreadTask* taskPtr = nullptr;
+		if (s_taskQueuePtr && !s_taskQueuePtr->isEmpty())
+			taskPtr =  s_taskQueuePtr->popFrontTask();
+		return taskPtr;
+	};
+	
+	WKThread* wkThrPtr = new WKThread();
+	WKUtils::WKThreadTask* taskPtr = _getTask();
+	if (taskPtr)
 	{
-		temp_wkThr->addTask(temp_task);
-		temp_wkThr->setNextTaskQueue(&m_taskQueue); //将任务队列给当前线程，当线程完成后自动从队列中取任务执行
-		temp_wkThr->start();
+		wkThrPtr->addTask(taskPtr);
+		wkThrPtr->setThreadPoolTaskQueueFunc(&s_pFunc);
+		wkThrPtr->start();
 		m_threadQueueWKLocker.lock();
-		m_threadDoneQueue.push(temp_wkThr);
+		m_threadDoneQueue.push(wkThrPtr);
 		m_threadDoneCount = m_threadDoneQueue.size();
 		m_threadQueueWKLocker.unlock();
 	}
 	else
 	{
 		m_threadQueueWKLocker.lock();
-		m_threadWaitQueue.push(temp_wkThr);
+		m_threadWaitQueue.push(wkThrPtr);
 		m_threadWaitCount = m_threadWaitQueue.size();
 		m_threadQueueWKLocker.unlock();
 	}
@@ -195,6 +195,7 @@ void WKThreadPool::_stopAllThread()
 	m_condition.wait(locker, [&]()
 		{return currentTaskSize() == 0; });
 
+	//释放线程对象
 	WKThread* temp_wkThr = nullptr;
 	while (!m_threadWaitQueue.empty())
 	{
@@ -225,19 +226,13 @@ void WKThreadPool::_sleepIntrval(const int ms)
 	std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
-WKThreadTask* WKThreadPool::_getTask()
+WKUtils::WKThreadTask* WKThreadPool::_getTask()
 {
 	if (currentTaskSize() <= 0)
 		return nullptr;
 
-	g_WKTaskQueueLocker.lock();
-	WKThreadTask* temp_task = m_taskQueue.front();
-	m_taskQueue.pop_front();
-	m_taskCount = m_taskQueue.size();
-	g_WKTaskQueueLocker.unlock();
-	if (m_bExiting)
-		m_condition.notify_all();
-	return temp_task;
+	WKUtils::WKThreadTask* taskPtr = m_taskQueue.popFrontTask();
+	return taskPtr;
 }
 
 

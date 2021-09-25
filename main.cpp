@@ -1,7 +1,6 @@
 ﻿// 定义应用程序的入口点。
 //
 #include "thread/WKThread.h"
-#include "thread/WKThreadTask.h"
 #include "thread/WKThreadPool.h"
 #include <iostream>
 class A :public WKThread
@@ -13,7 +12,7 @@ protected:
 	}
 };
 
-class B : public WKThreadTask
+class B : public WKUtils::WKThreadTask
 {
 public:
 	~B()
@@ -55,11 +54,11 @@ void test1()
 //线程池测试
 void test2()
 {
-	WKThreadPool* pool = new WKThreadPool; //创建线程池
+	WKThreadPool* pool = new WKThreadPool(); //创建线程池
 	pool->start();	//启动线程池
 
 	//添加任务
-	int i = 10;
+	int i = 30;
 	std::cout << "========================threadpool size" << pool->maxThreadSize()<< "=================" << std::endl;
 	B* b;
 	while (i--)
@@ -73,7 +72,7 @@ void test2()
 	{
 		_sleep(100);
 		std::cout << "====================" << std::endl;
-		std::cout << "donethread:" <<pool->doneThreadCount() << "   waitthread:" << pool->waitThreadCount() << "  tasksize" << pool->currentTaskSize();
+		std::cout << "donethread:" <<pool->doneThreadCount() << "   waitthread:" << pool->waitThreadCount() << "  tasksize" << pool->currentTaskSize() << std::endl;
 		std::cout << "====================" << std::endl;
 		if (pool->currentTaskSize() <= 0)
 			break;

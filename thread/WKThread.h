@@ -1,13 +1,8 @@
 #pragma once
 #ifndef WKThread_H
 #define WKThread_H
-
-#include <thread>
-#include <atomic>
-#include <mutex>   
-#include <deque>
-#include <condition_variable>
 #include "WKLocker.h"
+#include "utils.h"
 
 class WKThreadTask;
 
@@ -31,15 +26,13 @@ public:
 		Waiting,
 	};
 	WKThread();
-	virtual ~WKThread();
+	virtual ~WKThread();	//析构时，仅保证当前任务被执行，其他任务会被丢弃
 	void start();	//启动线程
 	void quit();	//退出线程
 	void wake();	//唤醒线程
 	void wait();	//挂起线程
-	bool addTask(WKThreadTask* task);	//添加线程任务，并唤醒线程，返回任务是否添加成功
-	void setNextTaskQueue(std::deque<WKThreadTask*>* nextTaskQueue);	//传递一个任务队列，当前线程任务执行完毕后自动从任务队列中取任务
-	void removeNextTaskQueue();	//移除任务队列
-	const bool hasNextTaskQueue();	//是否有任务队列
+	void addTask(WKUtils::WKThreadTask* task);	//添加线程任务，并唤醒线程，
+	const int getNextTaskSize();	//获取任务队列任务数
 
 	WKThread* getInstance();	//获取当前线程对象地址
 	unsigned int getThreadId() const;	//获取线程id
@@ -48,9 +41,10 @@ public:
 	bool isFinished() const;	//线程任务是否执行完成
 	bool isWaiting() const;	//线程是否处于挂起等待状态
 
+	void setThreadPoolTaskQueueFunc(std::function<WKUtils::WKThreadTask* (void)>* func);	//为线程池暴漏一个接口，在任务结束后可以通过func获取线程池下一个任务
+
 protected:
 	virtual void run();	//线程执行（用户）任务入口，若该方法未被重写使用方式2创建线程任务，否则使用方式1
-
 private:
 	void _runTask();	//通过std库获取到的线程入口
 	void _updateState(ThreadState state);	//更新线程状态
@@ -63,9 +57,9 @@ private:
 	std::mutex m_mutex;
 	std::condition_variable m_condition;
 	unsigned int m_threadId = 0;
-	WKThreadTask* m_task = nullptr;
 	WKLocker m_wkLocker;
-	WKLocker m_nextQueueWKLocker;
-	std::deque<WKThreadTask*>* m_nextTaskQueue = nullptr;
+	WKUtils::WKThreadTaskQueue m_currTaskQueue;
+	std::function<WKUtils::WKThreadTask*(void)>* m_func = nullptr;
+	WKUtils::WKThreadTask* m_taskPtr = nullptr;
 };
 #endif // WKThread_H

@@ -1,13 +1,11 @@
-#include <queue>
-#include <thread>
-#include <atomic>
-#include <deque>
-#include <mutex>
-#include <condition_variable>
+#ifndef WKTHREADPOOL_H
+#define WKTHREADPOOL_H
+#
 #include "WKLocker.h"
+#include "utils.h"
 
 class WKThread;
-class WKThreadTask;
+class WKUtils::WKThreadTask;
 /*
 	线程池
 	1.懒创建线程，有任务且线程数小于最大线程数时创建新的线程
@@ -22,7 +20,7 @@ public:
 	void start();	//启动线程池
 	void stop();	//停止线程池,停止加入任务
 	bool isStop() const;	//线程池是否被终止
-	bool addTask(WKThreadTask* task);	//添加任务，返回任务添加结果
+	bool addTask(WKUtils::WKThreadTask* task);	//添加任务，返回任务添加结果
 	int waitThreadCount() const; 	//挂起等待线程数
 	int doneThreadCount() const; 	//运行工作线程数
 	int maxThreadSize() const;	//最大线程数
@@ -35,12 +33,12 @@ private:
 	void _checkThreadQueue();	//检查线程运行情况，将空闲线程置于空闲线程队列中
 	void _stopAllThread();	//停止加入新任务，执行完队列中的任务
 	void _sleepIntrval(const int ms);	//调度间隔
-	WKThreadTask* _getTask();	//取一个队首任务
+	WKUtils::WKThreadTask* _getTask();	//取一个队首任务
 	void _updateElasticInterval(); // 更新弹性的检查间隔，工作线程增多则间隔检查间隔减少，否则增加
 	
 private:
 	std::thread* m_pollingThread = nullptr;
-	std::deque<WKThreadTask*> m_taskQueue;
+	WKUtils::WKThreadTaskQueue m_taskQueue;
 	std::queue<WKThread*> m_threadDoneQueue;
 	std::queue<WKThread*> m_threadWaitQueue;
 	std::atomic<bool> m_bStoped = true;
@@ -57,3 +55,4 @@ private:
 	int m_sleepIntrval = 0;
 	WKLocker m_threadQueueWKLocker;
 };
+#endif

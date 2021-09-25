@@ -1,7 +1,5 @@
 #include "WKThread.h"
-#include "WKThreadTask.h"
-#include "utils.h"
-#include "global.h"
+#include <iostream>
 
 WKThread::WKThread()
 {
@@ -40,40 +38,25 @@ void WKThread::wait()
 
 void WKThread::wake()
 {
+	if (!isWaiting())
+		return;
+
 	m_bWaitFlag = false;
 	m_condition.notify_one();
 }
 
-bool WKThread::addTask(WKThreadTask* task)
-{
-	if (isRunning())
-		return false;
-		
-	m_task = task;
+void WKThread::addTask(WKUtils::WKThreadTask* task)
+{	
+	if (m_bQuitFlag || !task)
+		return;
+
+	m_currTaskQueue.pushBackTask(task);
 	wake();
-	return true;
 }
 
-void WKThread::setNextTaskQueue(std::deque<WKThreadTask*>* nextTaskQueue)
+const int WKThread::getNextTaskSize() 
 {
-	m_nextQueueWKLocker.lock();
-	m_nextTaskQueue = nextTaskQueue;
-	m_nextQueueWKLocker.unlock();
-}
-
-void WKThread::removeNextTaskQueue()
-{
-	m_nextQueueWKLocker.lock();
-	m_nextTaskQueue = nullptr;
-	m_nextQueueWKLocker.unlock();
-}
-
-const bool WKThread::hasNextTaskQueue() 
-{
-	m_nextQueueWKLocker.lock();
-	bool ret =  m_nextTaskQueue != nullptr;
-	m_nextQueueWKLocker.unlock();
-	return ret;
+	return m_currTaskQueue.getTaskSize();
 }
 
 unsigned int WKThread::getThreadId() const
@@ -107,42 +90,37 @@ bool WKThread::isWaiting() const
 void WKThread::run()
 {
 	m_bQuitFlag = false;
-	if (m_task)
+	if (!m_currTaskQueue.isEmpty())
 	{
 		//执行线程任务
-		m_task->run();
-		m_task->callback();
-		if (m_task->isAutoDelete())
-			delete m_task;
-		m_task = nullptr;
-		//任务执行完毕后，取下一个任务
-		if (hasNextTaskQueue())
+		m_taskPtr = m_currTaskQueue.popFrontTask();
+		std::cout << m_taskPtr->getTaskId() << std::endl;
+		if (m_taskPtr)
 		{
-			if (m_nextTaskQueue->empty())
-			{
-				setNextTaskQueue(nullptr);
-			}
-			else
-			{
-				g_WKTaskQueueLocker.lock();
-				if (!m_nextTaskQueue->empty())
-				{
-					if (addTask(m_nextTaskQueue->front()))
-						m_nextTaskQueue->pop_front();
-				}
-				g_WKTaskQueueLocker.unlock();
-			}
+			m_taskPtr->run();
+			m_taskPtr->callback();
+			if (m_taskPtr->isAutoDelete())
+				delete m_taskPtr;
+			m_taskPtr = nullptr;
 		}
-		else
+		//当前线程没有任务尝试取任务
+		if (m_currTaskQueue.isEmpty() && m_func)
 		{
-			wait(); // 没有下一个任务挂起线程
+				addTask((*m_func)());
 		}
-			
 	}
 	else
 	{
 		wait();
 	}
+}
+
+void WKThread::setThreadPoolTaskQueueFunc(std::function<WKUtils::WKThreadTask* (void)>* func)
+{
+	if (m_func)
+		return;
+
+	m_func = func;
 }
 
 void WKThread::_runTask()
