@@ -7,7 +7,6 @@ namespace WKUtils
 	class WKLocker;
 	class WKThreadTask;
 	class WKThreadTaskQueue;
-	class WKLocker;
 }
 
 class WKThread;
