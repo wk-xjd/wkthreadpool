@@ -1,34 +1,34 @@
 #include "WKThread.h"
+#include "utils.h"
 #include <iostream>
 
 WKThread::WKThread()
 {
-
+	m_currTaskQueuePtr = std::make_unique<WKUtils::WKThreadTaskQueue>();
+	m_WKLockerPtr = std::make_unique<WKUtils::WKLocker>();
 }
 
 WKThread::~WKThread()
 {
-	if (!m_stdThread)
+	if (m_stdThreadPtr)
 	{
 		quit();
-		delete m_stdThread;
-		m_stdThread = nullptr;
 	}	
 }
 
 void WKThread::start()
 {
 	m_bWaitFlag = false;
-	if (!m_stdThread)
-		m_stdThread = new std::thread(&WKThread::_runTask, this);
+	if (!m_stdThreadPtr)
+		m_stdThreadPtr = std::make_unique<std::thread>(&WKThread::_runTask, this);
 }
 
 void WKThread::quit()
 {
 	m_bQuitFlag = true;
 	wake();
-	if (m_stdThread && m_stdThread->joinable())
-		m_stdThread->join();
+	if (m_stdThreadPtr && m_stdThreadPtr->joinable())
+		m_stdThreadPtr->join();
 }
 
 void WKThread::wait()
@@ -50,16 +50,16 @@ void WKThread::addTask(WKUtils::WKThreadTask* task)
 	if (m_bQuitFlag || !task)
 		return;
 
-	m_currTaskQueue.pushBackTask(task);
+	m_currTaskQueuePtr->pushBackTask(task);
 	wake();
 }
 
 const int WKThread::getNextTaskSize() 
 {
-	return m_currTaskQueue.getTaskSize();
+	return m_currTaskQueuePtr->getTaskSize();
 }
 
-unsigned int WKThread::getThreadId() const
+size_t WKThread::getThreadId() const
 {
 	if (isRunning())
 		return m_threadId;
@@ -90,23 +90,23 @@ bool WKThread::isWaiting() const
 void WKThread::run()
 {
 	m_bQuitFlag = false;
-	if (!m_currTaskQueue.isEmpty())
+	if (!m_currTaskQueuePtr->isEmpty())
 	{
 		//执行线程任务
-		m_taskPtr = m_currTaskQueue.popFrontTask();
-		std::cout << m_taskPtr->getTaskId() << std::endl;
-		if (m_taskPtr)
+		m_runTaskPtr = m_currTaskQueuePtr->popFrontTask();
+		std::cout << m_runTaskPtr->getTaskId() << std::endl;
+		if (m_runTaskPtr)
 		{
-			m_taskPtr->run();
-			m_taskPtr->callback();
-			if (m_taskPtr->isAutoDelete())
-				delete m_taskPtr;
-			m_taskPtr = nullptr;
+			m_runTaskPtr->run();
+			m_runTaskPtr->callback();
+			if (m_runTaskPtr->isAutoDelete())
+				delete m_runTaskPtr;
+			m_runTaskPtr = nullptr;
 		}
 		//当前线程没有任务尝试取任务
-		if (m_currTaskQueue.isEmpty() && m_func)
+		if (m_currTaskQueuePtr->isEmpty() && isHaveGetNextTaskFunc() && !m_bQuitFlag)
 		{
-				addTask((*m_func)());
+				addTask(m_func());
 		}
 	}
 	else
@@ -115,12 +115,19 @@ void WKThread::run()
 	}
 }
 
-void WKThread::setThreadPoolTaskQueueFunc(std::function<WKUtils::WKThreadTask* (void)>* func)
+bool WKThread::setGetNextTaskFunc(std::function<WKUtils::WKThreadTask* (void)> func)
 {
-	if (m_func)
-		return;
+	if (m_threadBegin)
+		return false;
 
-	m_func = func;
+	m_func = std::move(func);
+	m_haveGetNextTaskFunc = true;
+	return true;
+}
+
+bool WKThread::isHaveGetNextTaskFunc() const
+{
+	return m_haveGetNextTaskFunc;
 }
 
 void WKThread::_runTask()
@@ -146,8 +153,8 @@ void WKThread::_runTask()
 
 void WKThread::_updateState(ThreadState state)
 {
-	m_wkLocker.lock();
+	m_WKLockerPtr->lock();
 	m_state = state;
-	m_wkLocker.unlock();
+	m_WKLockerPtr->unlock();
 }
 

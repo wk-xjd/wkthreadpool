@@ -1,11 +1,16 @@
 #ifndef WKTHREADPOOL_H
 #define WKTHREADPOOL_H
-#
-#include "WKLocker.h"
-#include "utils.h"
+#include "stdafx.h"
+
+namespace WKUtils
+{
+	class WKLocker;
+	class WKThreadTask;
+	class WKThreadTaskQueue;
+	class WKLocker;
+}
 
 class WKThread;
-class WKUtils::WKThreadTask;
 /*
 	线程池
 	1.懒创建线程，有任务且线程数小于最大线程数时创建新的线程
@@ -28,6 +33,7 @@ public:
 	int currentTaskSize() const; 	//当前任务数
 
 private:
+	void _init();	//初始化
 	void _benginScheduler();	//调度管理
 	void _createThread();	//创建一个新的线程
 	void _checkThreadQueue();	//检查线程运行情况，将空闲线程置于空闲线程队列中
@@ -37,22 +43,25 @@ private:
 	void _updateElasticInterval(); // 更新弹性的检查间隔，工作线程增多则间隔检查间隔减少，否则增加
 	
 private:
-	std::thread* m_pollingThread = nullptr;
-	WKUtils::WKThreadTaskQueue m_taskQueue;
-	std::queue<WKThread*> m_threadDoneQueue;
-	std::queue<WKThread*> m_threadWaitQueue;
+	int m_maxThreadSize = 0;
+	int m_maxTaskSize = 30;
+	int m_lastWaitThreadcount = 0;
+	int m_waitThreadCountGradient = 0;
+	int m_sleepIntrval = 0;
+	
 	std::atomic<bool> m_bStoped = true;
 	std::atomic<int> m_threadDoneCount = 0;
 	std::atomic<int> m_threadWaitCount = 0;
 	std::atomic<int> m_taskCount = 0;
-	int m_maxThreadSize = 0;
-	int m_maxTaskSize = 30;
 	std::atomic<bool> m_bExiting = false;
+
 	std::condition_variable m_condition;
 	std::mutex m_mutex;
-	int m_lastWaitThreadcount = 0;
-	int m_waitThreadCountGradient = 0;
-	int m_sleepIntrval = 0;
-	WKLocker m_threadQueueWKLocker;
+	std::queue<WKThread*> m_threadDoneQueue;
+	std::queue<WKThread*> m_threadWaitQueue;
+	
+	std::unique_ptr<std::thread> m_pollingThreadPtr = nullptr;
+	std::unique_ptr<WKUtils::WKThreadTaskQueue> m_taskQueuePtr = nullptr;
+	std::unique_ptr<WKUtils::WKLocker> m_threadQueueWKLocker = nullptr;
 };
 #endif

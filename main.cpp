@@ -2,6 +2,7 @@
 //
 #include "thread/WKThread.h"
 #include "thread/WKThreadPool.h"
+#include "thread/utils.h"
 #include <iostream>
 class A :public WKThread
 {

@@ -8,7 +8,7 @@
 namespace WKUtils
 {
 /////////////////// method  //////////////////
-	unsigned int currentThreadId()
+	size_t currentThreadId()
 	{
 #ifdef WIN32
 		return GetCurrentThreadId();
@@ -16,7 +16,64 @@ namespace WKUtils
 		return thread_self()
 #endif
 	};
+////////////////// WKLocker  //////////////////
+	WKLocker::WKLocker(int spinTimes)
+		: m_spinCount(spinTimes)
+	{
 
+	}
+	WKLocker::~WKLocker()
+	{
+
+	}
+
+	void WKLocker::lock()
+	{
+		//获取当前线程id
+		size_t curThrId = WKUtils::currentThreadId();
+		//自旋次数
+		std::atomic<int> currCount = m_spinCount;
+	START_GET_LOCK:
+		{
+			while (!m_currentThreadId.compare_exchange_weak(m_noLockState, curThrId) && currCount.fetch_sub(1));
+			//自旋失败获取锁失败则阻塞
+			if (m_currentThreadId == curThrId)
+			{
+				m_lockCount++;	//重入
+			}
+			else
+			{
+				std::unique_lock<std::mutex> locker(m_muetex);
+				m_condition.wait(locker, [&]()
+					{return m_currentThreadId == m_noLockState; });
+				locker.unlock();
+				//锁被让出后，重新获取锁
+				goto START_GET_LOCK;
+			}
+		}
+	}
+
+	void WKLocker::unlock()
+	{
+		size_t curThrId = WKUtils::currentThreadId();
+
+		if (m_currentThreadId == curThrId)
+		{
+			if (!(--m_lockCount))
+			{
+				//锁释放后唤醒所有阻塞在该锁的线程
+				m_currentThreadId.store(m_noLockState);
+				m_condition.notify_all();
+				m_lockCount = 0;
+			}
+
+		}
+	}
+
+	bool WKLocker::isLock() const
+	{
+		return m_currentThreadId == m_noLockState;
+	}
 
 /////////////////////WKThreadTaskQueue///////////////////////
 	WKThreadTaskQueue::WKThreadTaskQueue()

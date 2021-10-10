@@ -1,5 +1,6 @@
 #include "WKThreadPool.h"
 #include "WKThread.h"
+#include "utils.h"
 
 namespace
 {
@@ -12,32 +13,37 @@ namespace
 WKThreadPool::WKThreadPool()
 {
 	m_maxThreadSize = std::thread::hardware_concurrency();
+	_init();
 }
 WKThreadPool::WKThreadPool(int maxThreadSize, int maxTaskSize)
 	: m_maxTaskSize(maxTaskSize)
 	, m_maxThreadSize(maxThreadSize)
 {
-	
+	_init();
 }
 
 WKThreadPool::~WKThreadPool()
 {
 	//析构前释放所有线程
 	stop();
-	if (m_pollingThread)
+	if (m_pollingThreadPtr)
 	{
-		if (m_pollingThread->joinable())
-			m_pollingThread->join();
-		delete m_pollingThread;
-		m_pollingThread = nullptr;
+		if (m_pollingThreadPtr->joinable())
+			m_pollingThreadPtr->join();
 	}
+}
+
+void WKThreadPool::_init()
+{
+	m_threadQueueWKLocker = std::make_unique<WKUtils::WKLocker>();
+	m_taskQueuePtr = std::make_unique<WKUtils::WKThreadTaskQueue>();
 }
 
 void WKThreadPool::start()
 {
 	m_bStoped = false;
-	if (!m_pollingThread)
-		m_pollingThread = new std::thread(&WKThreadPool::_benginScheduler, this);
+	if (!m_pollingThreadPtr)
+		m_pollingThreadPtr = std::make_unique<std::thread>(&WKThreadPool::_benginScheduler, this);
 }
 
 void WKThreadPool::stop()
@@ -56,19 +62,19 @@ bool WKThreadPool::addTask(WKUtils::WKThreadTask* task)
 {
 	if (task && !m_bExiting && currentTaskSize() <= maxTaskSize())
 	{
-		if (m_taskQueue.isEmpty())
+		if (m_taskQueuePtr->isEmpty())
 		{
-			m_taskQueue.pushFrontTask(task);
+			m_taskQueuePtr->pushFrontTask(task);
 			return true;
 		}
 		//任务优先级高从堆首插入
-		if (task->taskPriorty() >= m_taskQueue.getFrontTask()->taskPriorty())
+		if (task->taskPriorty() >= m_taskQueuePtr->getFrontTask()->taskPriorty())
 		{
-			m_taskQueue.pushFrontTask(task);
+			m_taskQueuePtr->pushFrontTask(task);
 		}
 		else
 		{
-			m_taskQueue.pushBackTask(task);
+			m_taskQueuePtr->pushBackTask(task);
 		}
 		return true;	
 	}
@@ -97,7 +103,7 @@ int WKThreadPool::maxTaskSize() const
 
 int WKThreadPool::currentTaskSize() const
 {
-	return m_taskQueue.getTaskSize();
+	return m_taskQueuePtr->getTaskSize();
 }
 
 void WKThreadPool::_benginScheduler()
@@ -114,12 +120,12 @@ void WKThreadPool::_benginScheduler()
 			if (temp_wkThr && temp_task)
 			{
 				temp_wkThr->addTask(temp_task);
-				m_threadQueueWKLocker.lock();
+				m_threadQueueWKLocker->lock();
 				m_threadDoneQueue.push(temp_wkThr);
 				m_threadWaitQueue.pop();
 				m_threadDoneCount = m_threadDoneQueue.size();
 				m_threadWaitCount = m_threadWaitQueue.size();
-				m_threadQueueWKLocker.unlock();
+				m_threadQueueWKLocker->unlock();
 			}
 		}
 		else if (doneThreadCount() + waitThreadCount() < maxThreadSize() && currentTaskSize() > 0)
@@ -138,7 +144,7 @@ LOOP_CHECK:
 
 void WKThreadPool::_createThread()
 {
-	static WKUtils::WKThreadTaskQueue* const s_taskQueuePtr = &m_taskQueue;
+	static WKUtils::WKThreadTaskQueue* const s_taskQueuePtr = m_taskQueuePtr.get();
 	static std::function<WKUtils::WKThreadTask* (void)> s_pFunc = [](){
 		WKUtils::WKThreadTask* taskPtr = nullptr;
 		if (s_taskQueuePtr && !s_taskQueuePtr->isEmpty())
@@ -151,19 +157,19 @@ void WKThreadPool::_createThread()
 	if (taskPtr)
 	{
 		wkThrPtr->addTask(taskPtr);
-		wkThrPtr->setThreadPoolTaskQueueFunc(&s_pFunc);
+		wkThrPtr->setGetNextTaskFunc(s_pFunc);
 		wkThrPtr->start();
-		m_threadQueueWKLocker.lock();
+		m_threadQueueWKLocker->lock();
 		m_threadDoneQueue.push(wkThrPtr);
 		m_threadDoneCount = m_threadDoneQueue.size();
-		m_threadQueueWKLocker.unlock();
+		m_threadQueueWKLocker->unlock();
 	}
 	else
 	{
-		m_threadQueueWKLocker.lock();
+		m_threadQueueWKLocker->lock();
 		m_threadWaitQueue.push(wkThrPtr);
 		m_threadWaitCount = m_threadWaitQueue.size();
-		m_threadQueueWKLocker.unlock();
+		m_threadQueueWKLocker->unlock();
 	}
 }
 
@@ -174,7 +180,7 @@ void WKThreadPool::_checkThreadQueue()
 	WKThread* temp_wkThr = nullptr;
 	while (checkLen--)
 	{
-		m_threadQueueWKLocker.lock();
+		m_threadQueueWKLocker->lock();
 		temp_wkThr = m_threadDoneQueue.front();
 		m_threadDoneQueue.pop();
 		
@@ -184,7 +190,7 @@ void WKThreadPool::_checkThreadQueue()
 			m_threadDoneQueue.push(temp_wkThr);
 		m_threadDoneCount = m_threadDoneQueue.size();
 		m_threadWaitCount = m_threadWaitQueue.size();
-		m_threadQueueWKLocker.unlock();
+		m_threadQueueWKLocker->unlock();
 	}
 }
 
@@ -231,7 +237,7 @@ WKUtils::WKThreadTask* WKThreadPool::_getTask()
 	if (currentTaskSize() <= 0)
 		return nullptr;
 
-	WKUtils::WKThreadTask* taskPtr = m_taskQueue.popFrontTask();
+	WKUtils::WKThreadTask* taskPtr = m_taskQueuePtr->popFrontTask();
 	return taskPtr;
 }
 

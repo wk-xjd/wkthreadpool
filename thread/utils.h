@@ -1,11 +1,36 @@
 #ifndef _UTILS_H_
 #define _UTILS_H_
-#include "WKLocker.h"
+#include "stdafx.h"
 
 namespace WKUtils
 {
 ////////////////// method //////////////////
-	unsigned int currentThreadId();  //获取当前线程id；
+	size_t currentThreadId();  //获取当前线程id；
+
+////////////////// WKLocker  //////////////////
+	/*
+	* 可重入锁，支持锁升级
+	* 默认为自旋，默认自旋10次后升级为重量级锁，阻塞线程
+	*/
+	class WKLocker
+	{
+	public:
+		WKLocker(int spinTimes = 10);
+		~WKLocker();
+
+		void lock();
+		void unlock();
+		bool isLock() const;
+
+	private:
+		int m_lockCount = 0;
+		size_t m_noLockState = 0;
+		int m_spinCount = 0;
+		std::atomic<size_t> m_currentThreadId = 0;
+		std::condition_variable m_condition;
+		std::mutex m_muetex;
+	};
+////////////////// WKLocker-end  //////////////////
 
 ////////////////// WKThreadTask  //////////////////
 	/*
@@ -29,15 +54,15 @@ namespace WKUtils
 		virtual ~WKThreadTask() {};
 		virtual void run() = 0;
 		virtual void callback() {};
-		virtual unsigned int getTaskId() { return hash_task_fn(this); }
+		virtual size_t getTaskId() { if (m_taskId == 0) m_taskId = hash_task_fn(this); return m_taskId;}
 		PriortyLevel taskPriorty() { return m_priorty; }
 		void setTaskPriorty(PriortyLevel level) { m_priorty = level; }
 		bool isAutoDelete() { return m_autoDelete; } const
-			void setAutoDelete(const bool isAutoDeleted = false) { m_autoDelete = isAutoDeleted; }
+		void setAutoDelete(const bool isAutoDeleted = false) { m_autoDelete = isAutoDeleted; }
 
 	private:
 		std::hash<WKThreadTask*> hash_task_fn;
-		unsigned int m_taskId = 0;
+		size_t m_taskId = 0;
 		PriortyLevel m_priorty = PriortyLevel::Low;
 		bool m_autoDelete = false;
 	};
@@ -65,7 +90,7 @@ namespace WKUtils
 
 	private:
 		std::deque<WKUtils::WKThreadTask*> m_taskQueue;
-		WKLocker m_locker;
+		WKUtils::WKLocker m_locker;
 		std::atomic<int> m_taskSize = 0;
 	};
 ////////////////// WKThreadTaskQueue -end  //////////////////

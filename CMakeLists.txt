@@ -14,7 +14,7 @@ demo
 "thread/WKThread.cpp"
 "thread/WKThreadPool.h"
 "thread/WKThreadPool.cpp"
-"thread/WKLocker.h" 
-"thread/WKLocker.cpp")
+ 
+)
 
 # TODO: 如有需要，请添加测试并安装目标。

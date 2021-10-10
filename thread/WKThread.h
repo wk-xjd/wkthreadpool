@@ -1,8 +1,14 @@
 #pragma once
 #ifndef WKThread_H
 #define WKThread_H
-#include "WKLocker.h"
-#include "utils.h"
+#include "stdafx.h"
+
+namespace WKUtils
+{
+	class WKLocker;
+	class WKThreadTask;
+	class WKThreadTaskQueue;
+}
 
 class WKThreadTask;
 
@@ -35,13 +41,14 @@ public:
 	const int getNextTaskSize();	//获取任务队列任务数
 
 	WKThread* getInstance();	//获取当前线程对象地址
-	unsigned int getThreadId() const;	//获取线程id
+	size_t getThreadId() const;	//获取线程id
 
 	bool isRunning() const;	//当前线程是否正在运行
 	bool isFinished() const;	//线程任务是否执行完成
 	bool isWaiting() const;	//线程是否处于挂起等待状态
 
-	void setThreadPoolTaskQueueFunc(std::function<WKUtils::WKThreadTask* (void)>* func);	//为线程池暴漏一个接口，在任务结束后可以通过func获取线程池下一个任务
+	bool setGetNextTaskFunc(std::function<WKUtils::WKThreadTask* (void)>func);	//为线程池暴漏一个接口，在任务结束后可以通过func获取线程池下一个任务
+	bool isHaveGetNextTaskFunc() const;
 
 protected:
 	virtual void run();	//线程执行（用户）任务入口，若该方法未被重写使用方式2创建线程任务，否则使用方式1
@@ -50,16 +57,18 @@ private:
 	void _updateState(ThreadState state);	//更新线程状态
 
 private:
-	std::thread* m_stdThread = nullptr; 
+	size_t m_threadId = 0;
+	bool m_threadBegin = false;
+	bool m_haveGetNextTaskFunc = false;
 	std::atomic<bool> m_bWaitFlag = false;
 	std::atomic<bool> m_bQuitFlag = true;
 	std::atomic<enum ThreadState> m_state = ThreadState::Waiting;
 	std::mutex m_mutex;
 	std::condition_variable m_condition;
-	unsigned int m_threadId = 0;
-	WKLocker m_wkLocker;
-	WKUtils::WKThreadTaskQueue m_currTaskQueue;
-	std::function<WKUtils::WKThreadTask*(void)>* m_func = nullptr;
-	WKUtils::WKThreadTask* m_taskPtr = nullptr;
+	std::unique_ptr<std::thread>m_stdThreadPtr = nullptr;
+	std::unique_ptr<WKUtils::WKLocker> m_WKLockerPtr = nullptr;
+	std::unique_ptr<WKUtils::WKThreadTaskQueue> m_currTaskQueuePtr = nullptr;
+	std::function<WKUtils::WKThreadTask*(void)> m_func;
+	WKUtils::WKThreadTask* m_runTaskPtr = nullptr; //执行任务指针
 };
 #endif // WKThread_H
