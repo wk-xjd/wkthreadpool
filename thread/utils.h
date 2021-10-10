@@ -23,6 +23,9 @@ namespace WKUtils
 		bool isLock() const;
 
 	private:
+		bool _checkLockThread(size_t threadId);
+
+	private:
 		int m_lockCount = 0;
 		size_t m_noLockState = 0;
 		int m_spinCount = 0;

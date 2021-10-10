@@ -33,15 +33,18 @@ namespace WKUtils
 		size_t curThrId = WKUtils::currentThreadId();
 		//自旋次数
 		std::atomic<int> currCount = m_spinCount;
+		//自旋失败获取锁失败则阻塞
+
+		if (_checkLockThread(curThrId))
+		{
+			return;
+		}
+
 	START_GET_LOCK:
 		{
 			while (!m_currentThreadId.compare_exchange_weak(m_noLockState, curThrId) && currCount.fetch_sub(1));
 			//自旋失败获取锁失败则阻塞
-			if (m_currentThreadId == curThrId)
-			{
-				m_lockCount++;	//重入
-			}
-			else
+			if (!_checkLockThread(curThrId))
 			{
 				std::unique_lock<std::mutex> locker(m_muetex);
 				m_condition.wait(locker, [&]()
@@ -73,6 +76,17 @@ namespace WKUtils
 	bool WKLocker::isLock() const
 	{
 		return m_currentThreadId == m_noLockState;
+	}
+
+	bool WKLocker::_checkLockThread(size_t& threadId)
+	{
+		if (m_currentThreadId == threadId)
+		{
+			m_lockCount++;	//重入
+			return true;
+		}
+
+		return false;
 	}
 
 /////////////////////WKThreadTaskQueue///////////////////////
