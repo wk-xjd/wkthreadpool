@@ -42,7 +42,13 @@ namespace WKUtils
 
 	START_GET_LOCK:
 		{
-			while (!m_currentThreadId.compare_exchange_weak(m_noLockState, curThrId) && currCount.fetch_sub(1));
+			while (!m_currentThreadId.compare_exchange_weak(m_noLockState, curThrId))
+			{
+				if (!currCount.fetch_sub(1))
+					break;
+				else
+					std::this_thread::yield();
+			}
 			//自旋失败获取锁失败则阻塞
 			if (!_checkLockThread(curThrId))
 			{

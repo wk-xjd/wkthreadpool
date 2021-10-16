@@ -134,9 +134,9 @@ void WKThreadPool::_benginScheduler()
 		}
 LOOP_CHECK:
 		{
+			_sleepIntrval(s_pollingLongIntrvalMs + m_sleepIntrval);
 			_updateElasticInterval();		
 			_checkThreadQueue();
-			_sleepIntrval(s_pollingLongIntrvalMs + m_sleepIntrval);
 		}
 
 	}
@@ -240,7 +240,6 @@ WKUtils::WKThreadTask* WKThreadPool::_getTask()
 	WKUtils::WKThreadTask* taskPtr = m_taskQueuePtr->popFrontTask();
 	return taskPtr;
 }
-
 
 void WKThreadPool::_updateElasticInterval()
 {
