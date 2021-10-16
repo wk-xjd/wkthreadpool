@@ -30,6 +30,7 @@ public:
 		Running,
 		Finished,
 		Waiting,
+		Unknown
 	};
 	WKThread();
 	virtual ~WKThread();	//析构时，仅保证当前任务被执行，其他任务会被丢弃
@@ -40,15 +41,16 @@ public:
 	void addTask(WKUtils::WKThreadTask* task);	//添加线程任务，并唤醒线程，
 	const int getNextTaskSize();	//获取任务队列任务数
 
-	WKThread* getInstance();	//获取当前线程对象地址
 	size_t getThreadId() const;	//获取线程id
 
 	bool isRunning() const;	//当前线程是否正在运行
 	bool isFinished() const;	//线程任务是否执行完成
 	bool isWaiting() const;	//线程是否处于挂起等待状态
 
-	bool setGetNextTaskFunc(std::function<WKUtils::WKThreadTask* (void)>func);	//为线程池暴漏一个接口，在任务结束后可以通过func获取线程池下一个任务
+	bool setGetNextTaskFunc(std::function<WKUtils::WKThreadTask* (void)>&& func);	//为线程池暴漏一个接口，在任务结束后可以通过func获取线程池下一个任务
 	bool isHaveGetNextTaskFunc() const;
+
+	bool isThreadRelased() const; //申请的线程资源是否被释放
 
 protected:
 	virtual void run();	//线程执行（用户）任务入口，若该方法未被重写使用方式2创建线程任务，否则使用方式1
@@ -58,17 +60,15 @@ private:
 
 private:
 	size_t m_threadId = 0;
-	bool m_threadBegin = false;
 	bool m_haveGetNextTaskFunc = false;
 	std::atomic<bool> m_bWaitFlag = false;
-	std::atomic<bool> m_bQuitFlag = true;
-	std::atomic<enum ThreadState> m_state = ThreadState::Waiting;
+	std::atomic<bool> m_bQuitFlag = false;
+	std::atomic<enum ThreadState> m_state = ThreadState::Unknown;
 	std::mutex m_mutex;
 	std::condition_variable m_condition;
 	std::unique_ptr<std::thread>m_stdThreadPtr = nullptr;
 	std::unique_ptr<WKUtils::WKLocker> m_WKLockerPtr = nullptr;
 	std::unique_ptr<WKUtils::WKThreadTaskQueue> m_currTaskQueuePtr = nullptr;
 	std::function<WKUtils::WKThreadTask*(void)> m_func;
-	WKUtils::WKThreadTask* m_runTaskPtr = nullptr; //执行任务指针
 };
 #endif // WKThread_H

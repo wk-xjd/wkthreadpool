@@ -115,7 +115,7 @@ void WKThreadPool::_benginScheduler()
 			WKUtils::WKThreadTask* temp_task = _getTask();
 			if (!temp_task)
 				goto LOOP_CHECK;
-			WKThread* temp_wkThr = m_threadWaitQueue.front();
+			WKThread * temp_wkThr = m_threadWaitQueue.front();
 
 			if (temp_wkThr && temp_task)
 			{
@@ -134,8 +134,8 @@ void WKThreadPool::_benginScheduler()
 		}
 LOOP_CHECK:
 		{
-			_sleepIntrval(s_pollingLongIntrvalMs + m_sleepIntrval);
-			_updateElasticInterval();		
+			_updateElasticInterval();
+			_sleepIntrval(s_pollingLongIntrvalMs + m_sleepIntrval);		
 			_checkThreadQueue();
 		}
 
@@ -153,11 +153,11 @@ void WKThreadPool::_createThread()
 	};
 	
 	WKThread* wkThrPtr = new WKThread();
-	WKUtils::WKThreadTask* taskPtr = _getTask();
+	WKUtils::WKThreadTask* const taskPtr = _getTask();
 	if (taskPtr)
 	{
 		wkThrPtr->addTask(taskPtr);
-		wkThrPtr->setGetNextTaskFunc(s_pFunc);
+		wkThrPtr->setGetNextTaskFunc(std::forward<std::function<WKUtils::WKThreadTask* (void)> >(s_pFunc));
 		wkThrPtr->start();
 		m_threadQueueWKLocker->lock();
 		m_threadDoneQueue.push(wkThrPtr);
@@ -237,12 +237,13 @@ WKUtils::WKThreadTask* WKThreadPool::_getTask()
 	if (currentTaskSize() <= 0)
 		return nullptr;
 
-	WKUtils::WKThreadTask* taskPtr = m_taskQueuePtr->popFrontTask();
+	WKUtils::WKThreadTask* const taskPtr = m_taskQueuePtr->popFrontTask();
 	return taskPtr;
 }
 
 void WKThreadPool::_updateElasticInterval()
 {
+	//若空闲线程增多，则增加轮询线程休眠时间，否则缩短轮询线程休眠时间
 	if (waitThreadCount() >= m_lastWaitThreadcount && m_lastWaitThreadcount > 0)
 	{
 		m_lastWaitThreadcount = waitThreadCount();

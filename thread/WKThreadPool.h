@@ -8,8 +8,9 @@ namespace WKUtils
 	class WKThreadTask;
 	class WKThreadTaskQueue;
 }
-
 class WKThread;
+
+
 /*
 	线程池
 	1.懒创建线程，有任务且线程数小于最大线程数时创建新的线程
@@ -20,7 +21,7 @@ class WKThreadPool
 public:
 	WKThreadPool();	
 	WKThreadPool(int maxThreadSize, int maxTaskSize);
-	~WKThreadPool();
+	virtual ~WKThreadPool();
 	void start();	//启动线程池
 	void stop();	//停止线程池,停止加入任务
 	bool isStop() const;	//线程池是否被终止

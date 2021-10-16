@@ -54,7 +54,7 @@ namespace WKUtils
 			{
 				std::unique_lock<std::mutex> locker(m_muetex);
 				m_condition.wait(locker, [&]()
-					{return m_currentThreadId == m_noLockState; });
+					{return m_currentThreadId.load() == m_noLockState; });
 				locker.unlock();
 				//锁被让出后，重新获取锁
 				goto START_GET_LOCK;
@@ -81,10 +81,10 @@ namespace WKUtils
 
 	bool WKLocker::isLock() const
 	{
-		return m_currentThreadId == m_noLockState;
+		return m_currentThreadId.load() == m_noLockState;
 	}
 
-	bool WKLocker::_checkLockThread(size_t& threadId)
+	bool WKLocker::_checkLockThread(const size_t& threadId)
 	{
 		if (m_currentThreadId == threadId)
 		{
@@ -130,25 +130,24 @@ namespace WKUtils
 
 	WKThreadTask* WKThreadTaskQueue::popFrontTask()
 	{
-		WKThreadTask* task = nullptr;
 		if (isEmpty())
-			return task;
+			return nullptr;
 
 		m_locker.lock();
-		task = m_taskQueue.front();
+		WKThreadTask* const task = m_taskQueue.front();
 		m_taskQueue.pop_front();
 		--m_taskSize;
 		m_locker.unlock();
 		return task;
 	}
 
-	WKUtils::WKThreadTask* WKThreadTaskQueue::popBackTask()
+	WKThreadTask* WKThreadTaskQueue::popBackTask()
 	{
-		WKUtils::WKThreadTask* task = nullptr;
 		if (isEmpty())
-			return task;
+			return nullptr;
+
 		m_locker.lock();
-		task = m_taskQueue.back();
+		WKThreadTask* const task = m_taskQueue.back();
 		m_taskQueue.pop_back();
 		--m_taskSize;
 		m_locker.unlock();

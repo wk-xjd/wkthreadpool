@@ -23,7 +23,7 @@ namespace WKUtils
 		bool isLock() const;
 
 	private:
-		bool _checkLockThread(size_t& threadId);
+		bool _checkLockThread(const size_t& threadId);
 
 	private:
 		int m_lockCount = 0;
