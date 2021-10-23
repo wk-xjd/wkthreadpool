@@ -1,4 +1,3 @@
-#pragma once
 #ifndef WKThread_H
 #define WKThread_H
 #include "stdafx.h"
@@ -62,7 +61,8 @@ private:
 	size_t m_threadId = 0;
 	bool m_haveGetNextTaskFunc = false;
 	std::atomic<bool> m_bWaitFlag = false;
-	std::atomic<bool> m_bQuitFlag = false;
+	std::atomic<bool> m_bQuitFlag = true;	//当重写run方法后线程执行完立刻退出
+	std::atomic<bool> m_bIsQuiting = false;		//是否调用了quit方法
 	std::atomic<enum ThreadState> m_state = ThreadState::Unknown;
 	std::mutex m_mutex;
 	std::condition_variable m_condition;

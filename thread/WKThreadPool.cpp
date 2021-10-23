@@ -5,9 +5,9 @@
 namespace
 {
 	const static int s_pollingLongIntrvalMs = 64;
-	const static int s_pollingShortIntrvalMs = 4;
-	const static int s_sleepIntrvalBound = 56;
-	const static int s_changeIntrvalBound = 3;
+	const static int s_pollingMiddleIntrvalMs = 32;
+	const static int s_pollingShortIntrvalMs = 16;
+	const static int s_checkWaitThreadTimes = 32;
 }
 
 WKThreadPool::WKThreadPool()
@@ -37,6 +37,7 @@ void WKThreadPool::_init()
 {
 	m_threadQueueWKLocker = std::make_unique<WKUtils::WKLocker>();
 	m_taskQueuePtr = std::make_unique<WKUtils::WKThreadTaskQueue>();
+	m_coreThreadSize = std::thread::hardware_concurrency() / 2;
 }
 
 void WKThreadPool::start()
@@ -83,12 +84,12 @@ bool WKThreadPool::addTask(WKUtils::WKThreadTask* task)
 
 int WKThreadPool::doneThreadCount() const
 {
-	return m_threadDoneCount;
+	return m_threadDoneCount.load();
 }
 
 int WKThreadPool::waitThreadCount() const
 {
-	return m_threadWaitCount;
+	return m_threadWaitCount.load();
 }
 
 int WKThreadPool::maxThreadSize() const
@@ -104,6 +105,16 @@ int WKThreadPool::maxTaskSize() const
 int WKThreadPool::currentTaskSize() const
 {
 	return m_taskQueuePtr->getTaskSize();
+}
+
+void WKThreadPool::setEnableAutoRecoveryThread(const bool enbale)
+{
+	m_isEnableAutoRecoveryThread.store(enbale);
+}
+
+bool WKThreadPool::isEnableAutoRecoveryThread() const
+{
+	return m_isEnableAutoRecoveryThread.load();
 }
 
 void WKThreadPool::_benginScheduler()
@@ -123,8 +134,8 @@ void WKThreadPool::_benginScheduler()
 				m_threadQueueWKLocker->lock();
 				m_threadDoneQueue.push(temp_wkThr);
 				m_threadWaitQueue.pop();
-				m_threadDoneCount = m_threadDoneQueue.size();
-				m_threadWaitCount = m_threadWaitQueue.size();
+				_updateDoneThreadCount();
+				_updateWaitThreadCount();
 				m_threadQueueWKLocker->unlock();
 			}
 		}
@@ -134,9 +145,18 @@ void WKThreadPool::_benginScheduler()
 		}
 LOOP_CHECK:
 		{
-			_updateElasticInterval();
-			_sleepIntrval(s_pollingLongIntrvalMs + m_sleepIntrval);		
 			_checkThreadQueue();
+			_sleepIntrval(s_pollingShortIntrvalMs);
+
+			//逐级递增sleep时间
+			if (!m_bExiting)
+				_sleepIntrval(s_pollingMiddleIntrvalMs);
+
+			if (!m_bExiting)
+				_sleepIntrval(s_pollingLongIntrvalMs);	
+			
+			if (_needRecovery())
+				_recoveryNoCoreThread();
 		}
 
 	}
@@ -161,7 +181,7 @@ void WKThreadPool::_createThread()
 		wkThrPtr->start();
 		m_threadQueueWKLocker->lock();
 		m_threadDoneQueue.push(wkThrPtr);
-		m_threadDoneCount = m_threadDoneQueue.size();
+		_updateDoneThreadCount();
 		m_threadQueueWKLocker->unlock();
 	}
 	else
@@ -188,8 +208,8 @@ void WKThreadPool::_checkThreadQueue()
 			m_threadWaitQueue.push(temp_wkThr);
 		else
 			m_threadDoneQueue.push(temp_wkThr);
-		m_threadDoneCount = m_threadDoneQueue.size();
-		m_threadWaitCount = m_threadWaitQueue.size();
+		_updateDoneThreadCount();
+		_updateWaitThreadCount();
 		m_threadQueueWKLocker->unlock();
 	}
 }
@@ -201,30 +221,8 @@ void WKThreadPool::_stopAllThread()
 	m_condition.wait(locker, [&]()
 		{return currentTaskSize() == 0; });
 
-	//释放线程对象
-	WKThread* temp_wkThr = nullptr;
-	while (!m_threadWaitQueue.empty())
-	{
-		temp_wkThr = m_threadWaitQueue.front();
-		if (temp_wkThr)
-		{
-			delete temp_wkThr;
-			temp_wkThr = nullptr;
-		}
-		m_threadWaitQueue.pop();
-
-	}
-
-	while (!m_threadDoneQueue.empty())
-	{
-		temp_wkThr = m_threadDoneQueue.front();
-		if (temp_wkThr)
-		{
-			delete temp_wkThr;
-			temp_wkThr = nullptr;
-		}
-		m_threadDoneQueue.pop();
-	}
+	_freeWaitThread(waitThreadCount());
+	_freeDoneThread(doneThreadCount());
 }
 
 void WKThreadPool::_sleepIntrval(const int ms)
@@ -241,42 +239,79 @@ WKUtils::WKThreadTask* WKThreadPool::_getTask()
 	return taskPtr;
 }
 
-void WKThreadPool::_updateElasticInterval()
+bool WKThreadPool::_needRecovery()
 {
-	//若空闲线程增多，则增加轮询线程休眠时间，否则缩短轮询线程休眠时间
-	if (waitThreadCount() >= m_lastWaitThreadcount && m_lastWaitThreadcount > 0)
-	{
-		m_lastWaitThreadcount = waitThreadCount();
-		if (m_waitThreadCountGradient >= 0)
-			m_waitThreadCountGradient++;
-		else
-			m_waitThreadCountGradient = 0;
-			
-		if (m_waitThreadCountGradient >= s_changeIntrvalBound)
-		{
-			m_waitThreadCountGradient = 0;
-			m_sleepIntrval  += s_pollingShortIntrvalMs;
-			if (m_sleepIntrval > s_sleepIntrvalBound)
-				m_sleepIntrval = s_sleepIntrvalBound;
-		}
-			
-	}
-	else if (waitThreadCount() <= m_lastWaitThreadcount && m_lastWaitThreadcount > 0)
-	{
-		m_lastWaitThreadcount = waitThreadCount();
-		if (m_waitThreadCountGradient <= 0)
-			m_waitThreadCountGradient--;
-		else
-			m_waitThreadCountGradient = 0;
+	if (!isEnableAutoRecoveryThread() || waitThreadCount() == 0)
+		return false;
 
-		if (m_waitThreadCountGradient >= s_changeIntrvalBound)
+	if (m_lastWaitThreadcount >= waitThreadCount())
+		++m_currCheckWaitThreadTimes;
+	else
+		m_currCheckWaitThreadTimes = 0;
+
+	m_lastWaitThreadcount = waitThreadCount();
+
+	return (m_currCheckWaitThreadTimes < s_checkWaitThreadTimes);
+}
+
+void WKThreadPool::_recoveryNoCoreThread()
+{
+	int recoverySize = (waitThreadCount() - m_coreThreadSize + 1) / 2;
+	_freeWaitThread(recoverySize);
+}
+
+
+void WKThreadPool::_freeDoneThread(int threadNum)
+{
+	if (threadNum <= 0 || threadNum > doneThreadCount())
+		return;
+
+	WKThread* temp_wkThr = nullptr;
+	while (threadNum--)
+	{
+		m_threadQueueWKLocker->lock();
+		temp_wkThr = m_threadDoneQueue.front();
+		m_threadDoneQueue.pop();
+		_updateDoneThreadCount();
+		m_threadQueueWKLocker->unlock();
+
+		if (temp_wkThr)
 		{
-			m_waitThreadCountGradient = 0;
-			m_sleepIntrval -= s_pollingShortIntrvalMs;
-			if (abs(m_sleepIntrval) > s_sleepIntrvalBound)
-				m_sleepIntrval = -s_sleepIntrvalBound;
+			delete temp_wkThr;
+			temp_wkThr = nullptr;
 		}
 	}
 }
 
+void WKThreadPool::_freeWaitThread(int threadNum)
+{
+	if (threadNum <= 0 || threadNum > waitThreadCount())
+		return;
+
+	WKThread* temp_wkThr = nullptr;
+	while (threadNum--)
+	{
+		m_threadQueueWKLocker->lock();
+		WKThread* temp_wkThr = m_threadWaitQueue.front();
+		m_threadWaitQueue.pop();
+		_updateWaitThreadCount();
+		m_threadQueueWKLocker->unlock();
+
+		if (temp_wkThr)
+		{
+			delete temp_wkThr;
+			temp_wkThr = nullptr;
+		}
+	}
+}
+
+void WKThreadPool::_updateDoneThreadCount()
+{
+	m_threadDoneCount.store(m_threadDoneQueue.size());
+}
+
+void WKThreadPool::_updateWaitThreadCount()
+{
+	m_threadWaitCount.store(m_threadWaitQueue.size());
+}
 

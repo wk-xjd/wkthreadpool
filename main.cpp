@@ -25,7 +25,7 @@ public:
 	{
 		std::cout << "====run tak B:" << getTaskId()<< std::endl;
 		std::cout << "thread id:" << std::this_thread::get_id() << std::endl;
-		_sleep(1000);
+		_sleep(10);
 	} 
 };
 
@@ -47,9 +47,15 @@ void test1()
 	std::cout << "thread id:" << a.getThreadId() << std::endl;
 	_sleep(10);
 	std::cout << "thread state" << a.isFinished() << std::endl;
-
-	std::cout << "thread state thr" << thr.isRunning() << std::endl;
+	_sleep(1000);
+	std::cout << "thread state thdddr" << thr.isRunning() << std::endl;
 	std::cout << "thread state" << thr.isWaiting() << std::endl;
+	std::cout << "thread state" << thr.isThreadRelased() << std::endl;
+	_sleep(100);
+	thr.quit();
+	std::cout << "thread state thr1111" << thr.isRunning() << std::endl;
+	std::cout << "thread state" << thr.isWaiting() << std::endl;
+	std::cout << "thread state" << thr.isThreadRelased() << std::endl;
 }
 
 //线程池测试
@@ -79,13 +85,18 @@ void test2()
 			break;
 
 	}
+
+	_sleep(1000 * 100);
+	std::cout << "====================" << std::endl;
+	std::cout << "donethread:" << pool->doneThreadCount() << "   waitthread:" << pool->waitThreadCount() << "  tasksize" << pool->currentTaskSize() << std::endl;
+	std::cout << "====================" << std::endl;
 }
 
 int main()
 {
 	std::cout << "====main run" << std::endl;
 	std::cout << "thread id:" << std::this_thread::get_id() << std::endl;
-	test2();
+	test1();
 	while (1);	//主线程阻塞
 	return 0;
 }

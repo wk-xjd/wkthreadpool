@@ -31,6 +31,8 @@ public:
 	int maxThreadSize() const;	//最大线程数
 	int maxTaskSize() const;	//最大任务队列最大任务数
 	int currentTaskSize() const; 	//当前任务数
+	void setEnableAutoRecoveryThread(const bool enable = true); //设置自动回收空闲线程
+	bool isEnableAutoRecoveryThread() const;	//是否自动回收空闲线程
 
 private:
 	void _init();	//初始化
@@ -40,25 +42,32 @@ private:
 	void _stopAllThread();	//停止加入新任务，执行完队列中的任务
 	void _sleepIntrval(const int ms);	//调度间隔
 	WKUtils::WKThreadTask* _getTask();	//取一个队首任务
-	void _updateElasticInterval(); // 更新弹性的检查间隔，工作线程增多则间隔检查间隔减少，否则增加
-	
+	bool _needRecovery();	//判断是否需要回线程
+	void _recoveryNoCoreThread(); //回收非核心线程
+	void _freeWaitThread(int threadNum); //释放等待线程
+	void _freeDoneThread(int threadNum);	//释放工作线程
+	void _updateWaitThreadCount();	//更新等待线程数
+	void _updateDoneThreadCount();	//更新工作线程数
+
 private:
-	int m_maxThreadSize = 0;
-	int m_maxTaskSize = 30;
-	int m_lastWaitThreadcount = 0;
-	int m_waitThreadCountGradient = 0;
-	int m_sleepIntrval = 0;
-	
+	int m_maxThreadSize = 0;	//最大线程数
+	int m_maxTaskSize = 30;		//最大任务数
+	int m_lastWaitThreadcount = 0;	//上次空闲线程数
+	int m_coreThreadSize = 0;	//线程池维护最少核心线程数
+	int m_currCheckWaitThreadTimes = 0;
+
+
+	std::atomic<bool> m_isEnableAutoRecoveryThread = true;	//是否启用空闲线程自动回收
 	std::atomic<bool> m_bStoped = true;
-	std::atomic<int> m_threadDoneCount = 0;
-	std::atomic<int> m_threadWaitCount = 0;
-	std::atomic<int> m_taskCount = 0;
+	std::atomic<int> m_threadDoneCount = 0;	//工作线程数
+	std::atomic<int> m_threadWaitCount = 0;	//空闲线程数
+	std::atomic<int> m_taskCount = 0;	// 当前任务数
 	std::atomic<bool> m_bExiting = false;
 
 	std::condition_variable m_condition;
 	std::mutex m_mutex;
-	std::queue<WKThread*> m_threadDoneQueue;
-	std::queue<WKThread*> m_threadWaitQueue;
+	std::queue<WKThread*> m_threadDoneQueue;	//工作线程队列
+	std::queue<WKThread*> m_threadWaitQueue;	//等待（空闲）线程队列
 	
 	std::unique_ptr<std::thread> m_pollingThreadPtr = nullptr;
 	std::unique_ptr<WKUtils::WKThreadTaskQueue> m_taskQueuePtr = nullptr;

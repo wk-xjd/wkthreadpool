@@ -18,17 +18,24 @@ WKThread::~WKThread()
 void WKThread::start()
 {
 	m_bWaitFlag.store(false);
-	m_bQuitFlag.store(false);
+	m_bIsQuiting.store(false);
 	if (!m_stdThreadPtr)
 		m_stdThreadPtr = std::make_unique<std::thread>(&WKThread::_runTask, this);
 }
 
 void WKThread::quit()
 {
+	if (m_bIsQuiting.load())
+		return;
+
 	m_bQuitFlag.store(true);
+	m_bIsQuiting.store(true);
 	wake();
 	if (m_stdThreadPtr && m_stdThreadPtr->joinable())
 		m_stdThreadPtr->join();
+
+	if (m_stdThreadPtr)
+		m_stdThreadPtr.reset(nullptr);
 }
 
 void WKThread::wait()
@@ -47,7 +54,7 @@ void WKThread::wake()
 
 void WKThread::addTask(WKUtils::WKThreadTask* task)
 {	
-	if (m_bQuitFlag || !task)
+	if (m_bIsQuiting.load() || !task)
 		return;
 
 	m_currTaskQueuePtr->pushBackTask(task);
@@ -83,7 +90,10 @@ bool WKThread::isWaiting() const
 }
 
 void WKThread::run()
-{		
+{	
+	if (!m_bIsQuiting.load() && m_bQuitFlag.load())
+		m_bQuitFlag.store(false);
+
 	if (!m_currTaskQueuePtr->isEmpty())
 	{
 		//执行线程任务
@@ -96,7 +106,7 @@ void WKThread::run()
 				delete runTaskPtr;
 		}
 
-		if (m_currTaskQueuePtr->isEmpty() && isHaveGetNextTaskFunc() && !m_bQuitFlag.load())
+		if (m_currTaskQueuePtr->isEmpty() && isHaveGetNextTaskFunc() && !m_bIsQuiting.load())
 		{
 			//当前线程最后一个任务执行完毕后，尝试取任务新的任务
 			addTask(m_func());
@@ -147,8 +157,6 @@ void WKThread::_runTask()
 		}
 		_updateState(ThreadState::Finished);
 	} while (!m_bQuitFlag.load());
-	//释放线程
-	m_stdThreadPtr.reset(nullptr);
 }
 
 void WKThread::_updateState(ThreadState state)
